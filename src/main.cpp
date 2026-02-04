@@ -5,8 +5,24 @@ extern "C" {
 #include <argon2.h>
 }
 
+bool CompareStrings(char* a, char* b)
+{
+    while(*a && *b){
+        if(*a != *b){
+            std::cout << "The strings " << *a << " and " << *b << " are different\n";
+            return false;
+        }
+        a++;
+        b++;
+    }
+    std::cout << "The strings " << *a << " and " << *b << " are identical\n";
+    return 
+}
+
 int main()
 {
+    bool same = CompareStrings("Hello, world!", "Hello, world");
+    std::cout << "The strings are " << (same ? "identical" : "different") << "\n";
     const std::string password = "testpassword";
 
     // Argon2 parameters

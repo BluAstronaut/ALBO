@@ -1,11 +1,13 @@
 #include <iostream>
 #include <string>
+#include <stdlib.h>
+#include <stdio.h>
 
 extern "C" {
-#include <argon2.h>
+
 }
 
-bool CompareStrings(char* a, char* b)
+bool CompareStrings(const char* a, const char* b)
 {
     while(*a && *b){
         if(*a != *b){
@@ -16,16 +18,24 @@ bool CompareStrings(char* a, char* b)
         b++;
     }
     std::cout << "The strings " << *a << " and " << *b << " are identical\n";
-    return 
+    return true;
 }
 
 int main()
 {
-    bool same = CompareStrings("Hello, world!", "Hello, world");
+    HashPassword(STRPassword);
+    char Continue_Prog;
+    do{
+        std::cin >> Continue_Prog;
+    }
+    while(Continue_Prog != 'a');
+    
+    const char *a = "Hello world!", *b = "Hello, world";
+    bool same = CompareStrings(a, b);
     std::cout << "The strings are " << (same ? "identical" : "different") << "\n";
     const std::string password = "testpassword";
 
-    // Argon2 parameters
+/*// Argon2 parameters
     const uint32_t t_cost = 2;          // iterations
     const uint32_t m_cost = 1 << 16;    // 64 MB
     const uint32_t parallelism = 1;
@@ -68,6 +78,7 @@ int main()
         std::cout << "Verification successful.\n";
     else
         std::cout << "Verification failed.\n";
+*/
 
     return 0;
 }

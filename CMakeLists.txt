@@ -34,7 +34,6 @@ add_executable(ALBO
     src/aes256.cpp
     src/X25519.cpp
     src/password.cpp
-    src/argon2id.cpp
 )
 
 if (WIN32)

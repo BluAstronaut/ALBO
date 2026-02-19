@@ -47,7 +47,11 @@
 
     for( int i=0; i<HASHLEN; ++i ){ 
         printf("Printing hash\n");
+<<<<<<< HEAD
         printf( "%02x", hash1[i] ); /*printf( "\n" );*/
+=======
+        printf( "%02x", hash1[i] ); printf( "\n" );
+>>>>>>> 2d1c6953329196393d80f235dc423e850a8d7ed8
     }
     if (memcmp(hash1, hash2, HASHLEN)) {
         for( int i=0; i<HASHLEN; ++i ) {

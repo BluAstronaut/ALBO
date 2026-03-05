@@ -1,38 +1,70 @@
-#include <iostream>
+// server.cpp - Minimal Winsock TCP server
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <iostream>
+#include <fstream>
+#include <vector>
+#include <thread>
+#include <chrono>
 
-// #pragma comment(lib, "ws2_32.lib")
+#pragma comment(lib, "ws2_32.lib")
+
+void handleClient(SOCKET clientSocket) {
+    std::ifstream file("large.rar", std::ios::binary);
+    if (!file.is_open()) {
+        std::cerr << "Failed to open file.\n";
+        closesocket(clientSocket);
+        return;
+    }
+
+    const size_t bufferSize = 512;
+    std::vector<char> buffer(bufferSize);
+
+    while (file) {
+        file.read(buffer.data(), bufferSize);
+        std::streamsize bytesRead = file.gcount();
+        if (bytesRead > 0) {
+            int sent = send(clientSocket, buffer.data(), static_cast<int>(bytesRead), 0);
+            if (sent == SOCKET_ERROR) {
+                std::cerr << "Send failed: " << WSAGetLastError() << "\n";
+                break;
+            }
+        }
+    }
+
+    std::cout << "File sent to client.\n";
+    closesocket(clientSocket);
+}
 
 int main() {
-    WSADATA wsaData;
-    if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+    WSADATA wsa;
+    if (WSAStartup(MAKEWORD(2, 2), &wsa) != 0) {
         std::cerr << "WSAStartup failed\n";
         return 1;
     }
 
-    SOCKET ListenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-    if (ListenSocket == INVALID_SOCKET) {
-        std::cerr << "Error creating socket\n";
+    SOCKET listenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (listenSocket == INVALID_SOCKET) {
+        std::cerr << "Socket creation failed: " << WSAGetLastError() << "\n";
         WSACleanup();
         return 1;
     }
 
     sockaddr_in serverAddr{};
     serverAddr.sin_family = AF_INET;
+    serverAddr.sin_port = htons(5555);
     serverAddr.sin_addr.s_addr = INADDR_ANY;
-    serverAddr.sin_port = htons(5555); // Change port if needed
 
-    if (bind(ListenSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
-        std::cerr << "Bind failed\n";
-        closesocket(ListenSocket);
+    if (bind(listenSocket, (sockaddr*)&serverAddr, sizeof(serverAddr)) == SOCKET_ERROR) {
+        std::cerr << "Bind failed: " << WSAGetLastError() << "\n";
+        closesocket(listenSocket);
         WSACleanup();
         return 1;
     }
 
-    if (listen(ListenSocket, SOMAXCONN) == SOCKET_ERROR) {
-        std::cerr << "Listen failed\n";
-        closesocket(ListenSocket);
+    if (listen(listenSocket, SOMAXCONN) == SOCKET_ERROR) {
+        std::cerr << "Listen failed: " << WSAGetLastError() << "\n";
+        closesocket(listenSocket);
         WSACleanup();
         return 1;
     }
@@ -40,19 +72,17 @@ int main() {
     std::cout << "Server listening on port 5555...\n";
 
     while (true) {
-        SOCKET ClientSocket = accept(ListenSocket, nullptr, nullptr);
-        if (ClientSocket == INVALID_SOCKET) {
-            std::cerr << "Accept failed\n";
-            break;
+        SOCKET clientSocket = accept(listenSocket, nullptr, nullptr);
+        if (clientSocket == INVALID_SOCKET) {
+            std::cerr << "Accept failed: " << WSAGetLastError() << "\n";
+            continue;
         }
 
-        const char* reply = "Hello";
-        if (send(ClientSocket, reply, (int)strlen(reply), 0) == 5)
-            std::cout << "connection\n";
-        closesocket(ClientSocket);
+        std::cout << "Client connected!\n";
+        std::thread(handleClient, clientSocket).detach();
     }
 
-    closesocket(ListenSocket);
+    closesocket(listenSocket);
     WSACleanup();
     return 0;
 }

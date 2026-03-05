@@ -1,84 +1,64 @@
 #include <iostream>
+#include "cryptowrapper/Argon2ID_HashFunc.h"
 #include <string>
-#include <stdlib.h>
-#include <stdio.h>
+#include "cryptowrapper/password.h"
+#include <iomanip>
 
-extern "C" {
-
-}
-
-bool CompareStrings(const char* a, const char* b)
-{
-    while(*a && *b){
-        if(*a != *b){
-            std::cout << "The strings " << *a << " and " << *b << " are different\n";
-            return false;
-        }
-        a++;
-        b++;
-    }
-    std::cout << "The strings " << *a << " and " << *b << " are identical\n";
-    return true;
-}
+using namespace prototype_functions;
+using namespace hashManager;
 
 int main()
-{
-    HashPassword(STRPassword);
-    char Continue_Prog;
-    do{
-        std::cin >> Continue_Prog;
-    }
-    while(Continue_Prog != 'a');
+{   
+    hashManager::HashParameters classobj;
+
+	std::cout << "A Mind is Born\n";
+
+    std::string password;
+    std::cout << "Enter password: ";
+    std::cin >> password;
+
+    classobj.Salt_mem = randomByteGen(SALTLEN);
+    classobj.password_mem = std::vector<uint8_t>(password.begin(), password.end());
+
+    hashStruct = {
+        classobj.password_mem.data(),
+        classobj.Salt_mem
+    };
     
-    const char *a = "Hello world!", *b = "Hello, world";
-    bool same = CompareStrings(a, b);
-    std::cout << "The strings are " << (same ? "identical" : "different") << "\n";
-    const std::string password = "testpassword";
+    hashStruct.PSW_Input = classobj.password_mem.data();
+    hashStruct.salt_in = classobj.Salt_mem;
 
-/*// Argon2 parameters
-    const uint32_t t_cost = 2;          // iterations
-    const uint32_t m_cost = 1 << 16;    // 64 MB
-    const uint32_t parallelism = 1;
-    const size_t salt_len = 16;
-    const size_t hash_len = 32;
+    classobj.Hash_mem = classobj.Argon2ID_Hash();
+    PrintHash(classobj.Hash_mem);
 
-    uint8_t salt[salt_len] = {0}; // quick & dirty zero salt (DO NOT use in production)
+    
+    std::cout << "\nclass object salt ";
+    PrintHash(classobj.Salt_mem);
+    std::cout << '\n';
 
-    char encoded[128];
-
-    int result = argon2id_hash_encoded(
-        t_cost,
-        m_cost,
-        parallelism,
-        password.c_str(),
-        password.size(),
-        salt,
-        salt_len,
-        hash_len,
-        encoded,
-        sizeof(encoded)
-    );
-
-    if (result != ARGON2_OK) {
-        std::cerr << "Hashing failed: "
-                  << argon2_error_message(result) << "\n";
-        return 1;
+    std::cout << "class object password ";
+    for(uint32_t i{}; i < classobj.password_mem.size(); i++) {
+        std::cout << classobj.password_mem[i];
     }
+    
+    std::cout << '\n';
 
-    std::cout << "Encoded hash:\n" << encoded << "\n";
+    std::cout << "class object hash ";
+    PrintHash(classobj.Hash_mem);
+    std::cout << "\n";
+    
+    std::cout << "hashStruct PSW_Input ";
+    for(uint32_t i{}; i < classobj.password_mem.size(); i++) {
+        std::cout << hashStruct.PSW_Input[i];
+    }
+    std::cout << "\n";
 
-    // Verify
-    int verify = argon2id_verify(
-        encoded,
-        password.c_str(),
-        password.size()
-    );
-
-    if (verify == ARGON2_OK)
-        std::cout << "Verification successful.\n";
-    else
-        std::cout << "Verification failed.\n";
-*/
-
-    return 0;
+    std::cout << "hashStruct salt_in ";
+    PrintHash(hashStruct.salt_in);
+    std::cout << "\n";
+    
+    std::cout << "class hash ";
+    PrintHash(classobj.Hash_mem);
+    std::cout << "\n";
+	return 0;
 }

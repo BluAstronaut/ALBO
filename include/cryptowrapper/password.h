@@ -14,3 +14,4 @@ namespace prototype_functions {
         const std::vector<uint8_t>& pepper 
     );
 }
+

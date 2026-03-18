@@ -1,9 +1,12 @@
-#include "cryptowrapper/Argon2ID_HashFunc.h"
+#include "universal/cryptowrapper/argon2id.h"
 #include <string.h>
 #include <iomanip>
 #include <iostream>
 #include <argon2.h>
 #include <random>
+#include <openssl/rand.h>
+#include <stdexcept>
+#include "universal/cryptowrapper/secure_mem.h"
 
 using namespace hashManager;
 

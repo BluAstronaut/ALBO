@@ -5,10 +5,10 @@
 
 
 namespace error {
-    void log(const std::string& e, std::string end = "\n");
-    void warn(const std::string& e, std::string end = "\n");
-    void error(const std::string& e, std::string end = "\n");
-    void fatal(const std::string& e, std::string end = "\n");
+    extern void log(const std::string& e, std::string end = "\n");
+    extern void warn(const std::string& e, std::string end = "\n");
+    extern void error(const std::string& e, std::string end = "\n");
+    extern void fatal(const std::string& e, std::string end = "\n");
 
     
     // log, warning, error, fatal

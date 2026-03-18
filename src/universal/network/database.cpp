@@ -1,4 +1,5 @@
 #include "universal/network/database.h"
+#include "universal/debugging/logging.h"
 #include <iostream>
 #include <stdexcept>
 #include <cstring>
@@ -14,12 +15,16 @@ namespace prototype::database {
         if (sqlite3_open(db_path.c_str(), &db) != SQLITE_OK) {
             std::string error = sqlite3_errmsg(db);
             sqlite3_close(db);
+            logging::fatal("database.log", "Failed to open database: " + error, "\n", db);
+
             throw std::runtime_error("Failed to open database: " + error);
         }
+        logging::log("database.log", "Database initialized successfully. " + db_path, "\n", db);
     }
 
     DatabaseManager::~DatabaseManager() {
         if (db) sqlite3_close(db);
+        logging::log("database.log", "Database closed. ", "\n", db);
     }
 
     bool DatabaseManager::execute_raw(const std::string& sql) {
@@ -27,8 +32,11 @@ namespace prototype::database {
         if (sqlite3_exec(db, sql.c_str(), nullptr, nullptr, &errMsg) != SQLITE_OK) {
             std::string error = errMsg;
             sqlite3_free(errMsg);
+            logging::fatal("database.log", "Failed to execute SQL: " + error, "\n", db);
+            throw std::runtime_error("Failed to execute SQL: " + error);
             return false;
         }
+        logging::log("database.log", "SQL executed successfully. " + sql, "\n", db);
         return true;
     }
 
@@ -41,6 +49,7 @@ namespace prototype::database {
                 display_name TEXT,
                 public_key_hex TEXT,
                 password TEXT,
+                salt TEXT UNIQUE NOT NULL,
                 last_seen INTEGER,
                 is_contact INTEGER DEFAULT 0
             );
@@ -54,7 +63,8 @@ namespace prototype::database {
                 group_uuid TEXT PRIMARY KEY,
                 group_name TEXT NOT NULL,
                 admin_uuid TEXT NOT NULL,
-                created_at INTEGER NOT NULL
+                created_at INTEGER NOT NULL,
+                group_count INTEGER DEFAULT 0
             );
             CREATE TABLE IF NOT EXISTS group_members (
                 group_uuid TEXT NOT NULL,
@@ -76,6 +86,7 @@ namespace prototype::database {
                 public_key BLOB
             );
         )";
+        logging::log("database.log", "Initializing database schema.", "\n", db);
         return execute_raw(schema);
     }
 
@@ -85,6 +96,7 @@ namespace prototype::database {
                           "timestamp INTEGER, "
                           "public_key BLOB, "
                           "sender_uuid TEXT);";
+        logging::log("database.log", "Creating user inbox table: " + uuid, "\n", db);
         return execute_raw(sql);
     }
 
@@ -93,13 +105,22 @@ namespace prototype::database {
         create_user_inbox_table(table_name);
         std::string sql = "INSERT INTO \"" + table_name + "\" (encrypted_payload, timestamp, public_key, sender_uuid) VALUES (?, ?, ?, ?);";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return false;
+        logging::log("database.log", "store_message_dynamic is " + sql, "\n", db);
+
+        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
+
         sqlite3_bind_blob(stmt, 1, msg.encrypted_payload.data(), (int)msg.encrypted_payload.size(), SQLITE_STATIC);
         sqlite3_bind_int64(stmt, 2, msg.timestamp);
         sqlite3_bind_blob(stmt, 3, msg.public_key.data(), (int)msg.public_key.size(), SQLITE_STATIC);
         sqlite3_bind_text(stmt, 4, msg.sender_uuid.c_str(), -1, SQLITE_STATIC);
         bool res = (sqlite3_step(stmt) == SQLITE_DONE);
         sqlite3_finalize(stmt);
+
+        logging::log("database.log", "Message stored successfully in table: " + table_name, "\n", db);
+
         return res;
     }
 
@@ -108,7 +129,14 @@ namespace prototype::database {
         std::vector<MessageEntry> msgs;
         std::string sql = "SELECT encrypted_payload, timestamp, public_key, sender_uuid FROM \"" + table_name + "\";";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) return msgs;
+
+        logging::log("database.log", "fetch_all_from_table is " + sql, "\n", db);
+
+        if (sqlite3_prepare_v2(db, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
+
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             MessageEntry m;
             const uint8_t* p = (const uint8_t*)sqlite3_column_blob(stmt, 0);
@@ -123,7 +151,9 @@ namespace prototype::database {
         if (delete_after && !msgs.empty()) {
             std::string drop = "DROP TABLE \"" + table_name + "\";";
             execute_raw(drop);
+            logging::log("database.log", "Dropped table: " + table_name, "\n", db);
         }
+        logging::log("database.log", "Fetched all messages from table: " + table_name, "\n", db);
         return msgs;
     }
 
@@ -131,7 +161,11 @@ namespace prototype::database {
         std::lock_guard<std::mutex> lock(db_mutex);
         const char* sql = "INSERT INTO messages (sender_uuid, target_uuid, encrypted_payload, timestamp, public_key) VALUES (?, ?, ?, ?, ?);";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
+
         sqlite3_bind_text(stmt, 1, msg.sender_uuid.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 2, msg.target_uuid.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_blob(stmt, 3, msg.encrypted_payload.data(), (int)msg.encrypted_payload.size(), SQLITE_STATIC);
@@ -139,10 +173,14 @@ namespace prototype::database {
         sqlite3_bind_blob(stmt, 5, msg.public_key.data(), (int)msg.public_key.size(), SQLITE_STATIC);
         bool res = (sqlite3_step(stmt) == SQLITE_DONE);
         sqlite3_finalize(stmt);
+
+        logging::log("database.log", "store_message: " + msg.sender_uuid + " -> " + msg.target_uuid + " " + std::to_string(msg.timestamp) + " " + std::to_string(msg.encrypted_payload.size()), "\n", db);
+
         return res;
     }
 
     std::vector<MessageEntry> DatabaseManager::get_messages_by_contact(const std::string& contact_uuid, int limit) {
+        logging::log("database.log", "Message entry is " + contact_uuid, "\n", db);
         return fetch_all_from_table(contact_uuid, false);
     }
 
@@ -153,7 +191,10 @@ namespace prototype::database {
                           "WHERE (sender_uuid = ? AND target_uuid = ?) OR (sender_uuid = ? AND target_uuid = ?) "
                           "ORDER BY timestamp ASC LIMIT ?;";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return msgs;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            return msgs;
+        }
         sqlite3_bind_text(stmt, 1, u1.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 2, u2.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 3, u2.c_str(), -1, SQLITE_STATIC);
@@ -170,11 +211,13 @@ namespace prototype::database {
             msgs.push_back(std::move(m));
         }
         sqlite3_finalize(stmt);
+        logging::log("database.log", "get_chat_history is " + u1 + " <-> " + u2, "\n", db);
         return msgs;
     }
 
     bool DatabaseManager::clear_messages(const std::string& contact_uuid) {
         std::string sql = "DROP TABLE IF EXISTS \"" + contact_uuid + "\";";
+        logging::log("database.log", "clear_messages is " + sql + " " + contact_uuid, "\n", db);
         return execute_raw(sql);
     }
 
@@ -182,7 +225,12 @@ namespace prototype::database {
         std::lock_guard<std::mutex> lock(db_mutex);
         const char* sql = "SELECT uuid, display_name, password FROM users WHERE username = ?;";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
+
         sqlite3_bind_text(stmt, 1, username.c_str(), -1, SQLITE_STATIC);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             out_user.username = username;
@@ -191,6 +239,7 @@ namespace prototype::database {
             out_user.password = (const char*)sqlite3_column_text(stmt, 2);
             sqlite3_finalize(stmt); return true;
         }
+        logging::log("database.log", "get_user_by_name is " + username + " " + out_user.display_name, "\n", db);
         sqlite3_finalize(stmt); return false;
     }
 
@@ -198,7 +247,10 @@ namespace prototype::database {
         std::lock_guard<std::mutex> lock(db_mutex);
         const char* sql = "SELECT username, display_name, password FROM users WHERE uuid = ?;";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
         sqlite3_bind_text(stmt, 1, uuid.c_str(), -1, SQLITE_STATIC);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             out_user.uuid = uuid;
@@ -207,6 +259,7 @@ namespace prototype::database {
             out_user.password = (const char*)sqlite3_column_text(stmt, 2);
             sqlite3_finalize(stmt); return true;
         }
+        logging::log("database.log", "get_user is " + uuid + " " + out_user.display_name, "\n", db);
         sqlite3_finalize(stmt); return false;
     }
 
@@ -214,7 +267,10 @@ namespace prototype::database {
         std::lock_guard<std::mutex> lock(db_mutex);
         const char* sql = "INSERT OR REPLACE INTO users (uuid, username, display_name, password, last_seen, is_contact) VALUES (?, ?, ?, ?, ?, ?);";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
         sqlite3_bind_text(stmt, 1, user.uuid.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 2, user.username.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 3, user.display_name.c_str(), -1, SQLITE_STATIC);
@@ -223,13 +279,18 @@ namespace prototype::database {
         sqlite3_bind_int(stmt, 6, user.is_contact ? 1 : 0);
         bool res = (sqlite3_step(stmt) == SQLITE_DONE);
         sqlite3_finalize(stmt); return res;
+
+        logging::log("database.log", "upsert_user is " + user.uuid + " " + user.display_name, "\n", db);
     }
 
     bool DatabaseManager::get_pre_key_by_id(uint64_t key_id, PreKeyEntry& out_key) {
         std::lock_guard<std::mutex> lock(db_mutex);
         const char* sql = "SELECT pub_key, priv_key FROM pre_keys WHERE key_id = ?;";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) {
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
         sqlite3_bind_int64(stmt, 1, key_id);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             out_key.key_id = key_id;
@@ -239,6 +300,7 @@ namespace prototype::database {
             if (pr) out_key.priv_key.assign(pr, pr + sqlite3_column_bytes(stmt, 1));
             sqlite3_finalize(stmt); return true;
         }
+        logging::log("database.log", "get_pre_key_by_id is " + std::to_string(key_id), "\n", db);
         sqlite3_finalize(stmt); return false;
     }
 
@@ -246,18 +308,26 @@ namespace prototype::database {
         std::lock_guard<std::mutex> lock(db_mutex);
         const char* sql = "INSERT INTO pre_keys (owner_uuid, pub_key, priv_key) VALUES (?, ?, ?);";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
+
         sqlite3_bind_text(stmt, 1, key.owner_uuid.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_blob(stmt, 2, key.pub_key.data(), (int)key.pub_key.size(), SQLITE_STATIC);
         if (!is_server_side) sqlite3_bind_blob(stmt, 3, key.priv_key.data(), (int)key.priv_key.size(), SQLITE_STATIC);
         else sqlite3_bind_null(stmt, 3);
         bool res = (sqlite3_step(stmt) == SQLITE_DONE);
+
+        logging::log("database.log", "store_pre_key is " + key.owner_uuid + " " + std::to_string(key.key_id), "\n", db);
         sqlite3_finalize(stmt); return res;
     }
 
     bool DatabaseManager::delete_pre_key(uint64_t key_id) {
         std::lock_guard<std::mutex> lock(db_mutex);
         std::string sql = "DELETE FROM pre_keys WHERE key_id = " + std::to_string(key_id) + ";";
+        logging::log("database.log", "delete_pre_key is " + sql, "\n", db);
         return execute_raw(sql);
     }
 
@@ -265,7 +335,10 @@ namespace prototype::database {
         std::lock_guard<std::mutex> lock(db_mutex);
         const char* sql = "SELECT key_id, pub_key FROM pre_keys WHERE owner_uuid = ? LIMIT 1;";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
         sqlite3_bind_text(stmt, 1, owner_uuid.c_str(), -1, SQLITE_STATIC);
         if (sqlite3_step(stmt) == SQLITE_ROW) {
             out_key.key_id = sqlite3_column_int64(stmt, 0);
@@ -273,6 +346,7 @@ namespace prototype::database {
             out_key.pub_key.assign(p, p + sqlite3_column_bytes(stmt, 1));
             sqlite3_finalize(stmt); return true;
         }
+        logging::log("database.log", "get_one_pre_key is " + owner_uuid, "\n", db);
         sqlite3_finalize(stmt); return false;
     }
 
@@ -286,17 +360,27 @@ namespace prototype::database {
                 res.push_back(u);
             }
         }
+        else{
+            logging::fatal("database.log", "Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
+        logging::log("database.log", "list_all_users is called", "\n", db);
         sqlite3_finalize(stmt); return res;
     }
 
     bool DatabaseManager::wipe_all_data() { return execute_raw("DELETE FROM users; DELETE FROM pre_keys; DELETE FROM groups; DELETE FROM group_members;"); }
     
     bool DatabaseManager::store_offline_message(const MessageEntry& msg) {
-        if (msg.target_uuid.empty()) return false;
+        if (msg.target_uuid.empty()) {
+            logging::warn("database.log", "store_offline_message is called with empty target_uuid", "\n", db);
+            return false;
+        }
+        logging::log("database.log", "store_offline_message is " + msg.target_uuid, "\n", db);
         return store_message_dynamic(msg.target_uuid, msg);
     }
 
     std::vector<MessageEntry> DatabaseManager::fetch_and_delete_offline_messages(const std::string& target_uuid) {
+        logging::log("database.log", "fetch_and_delete_offline_messages is " + target_uuid, "\n", db);
         return fetch_all_from_table(target_uuid, true);
     }
 
@@ -304,43 +388,62 @@ namespace prototype::database {
         std::lock_guard<std::mutex> lock(db_mutex);
         const char* sql = "INSERT INTO groups (group_uuid, group_name, admin_uuid, created_at) VALUES (?, ?, ?, ?);";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
         sqlite3_bind_text(stmt, 1, g.group_uuid.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 2, g.group_name.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 3, g.admin_uuid.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_int64(stmt, 4, g.created_at);
         bool res = (sqlite3_step(stmt) == SQLITE_DONE);
+        logging::log("database.log", "create_group is " + g.group_uuid + " " + g.group_name, "\n", db);
         sqlite3_finalize(stmt); return res;
     }
     bool DatabaseManager::add_group_member(const std::string& g, const std::string& u) {
         std::lock_guard<std::mutex> lock(db_mutex);
         const char* sql = "INSERT OR IGNORE INTO group_members (group_uuid, user_uuid) VALUES (?, ?);";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
         sqlite3_bind_text(stmt, 1, g.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 2, u.c_str(), -1, SQLITE_STATIC);
         bool res = (sqlite3_step(stmt) == SQLITE_DONE);
+        logging::log("database.log", "add_group_member is " + g + " <- " + u, "\n", db);
         sqlite3_finalize(stmt); return res;
     }
     std::vector<std::string> DatabaseManager::get_group_members(const std::string& g) {
-        std::lock_guard<std::mutex> lock(db_mutex);
+        std::lock_guard<std::mutex> lockx(db_mutex);
         std::vector<std::string> res;
         const char* sql = "SELECT user_uuid FROM group_members WHERE group_uuid = ?;";
         sqlite3_stmt* stmt = nullptr;
+        logging::log("database.log", "get_group_members is called with group UUID: " + g, "\n", db);
+
         if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) == SQLITE_OK) {
             sqlite3_bind_text(stmt, 1, g.c_str(), -1, SQLITE_STATIC);
             while (sqlite3_step(stmt) == SQLITE_ROW) res.push_back((const char*)sqlite3_column_text(stmt, 0));
         }
+        else{
+            logging::fatal("database.log", "Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
+        logging::log("database.log", "get_group_members is " + g + " with " + std::to_string(res.size()) + " members", "\n", db);
         sqlite3_finalize(stmt); return res;
     }
     bool DatabaseManager::is_group_admin(const std::string& g, const std::string& u) {
         std::lock_guard<std::mutex> lock(db_mutex);
         const char* sql = "SELECT 1 FROM groups WHERE group_uuid = ? AND admin_uuid = ?;";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
         sqlite3_bind_text(stmt, 1, g.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 2, u.c_str(), -1, SQLITE_STATIC);
         bool res = (sqlite3_step(stmt) == SQLITE_ROW);
+        logging::log("database.log", "is_group_admin is " + u + " admin of " + g + ": " + "res? " + (res ? "true" : "false"), "\n", db);
         sqlite3_finalize(stmt); return res;
     }
 
@@ -348,11 +451,15 @@ namespace prototype::database {
         std::lock_guard<std::mutex> lock(db_mutex);
         const char* sql = "INSERT OR IGNORE INTO user_contacts (owner_uuid, contact_uuid, contact_username) VALUES (?, ?, ?);";
         sqlite3_stmt* stmt = nullptr;
-        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK) return false;
+        if (sqlite3_prepare_v2(db, sql, -1, &stmt, nullptr) != SQLITE_OK){
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
         sqlite3_bind_text(stmt, 1, owner.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 2, contact.c_str(), -1, SQLITE_STATIC);
         sqlite3_bind_text(stmt, 3, c_name.c_str(), -1, SQLITE_STATIC);
         bool res = (sqlite3_step(stmt) == SQLITE_DONE);
+        logging::log("database.log", "add_user_contact is " + owner + " -> " + contact + " (" + c_name + ")", "\n", db);
         sqlite3_finalize(stmt); return res;
     }
 
@@ -371,6 +478,11 @@ namespace prototype::database {
                 res.push_back(u);
             }
         }
+        else{
+            logging::fatal("database.log", "Failed to execute SQL: " + std::string(sqlite3_errmsg(db)), "\n", db);
+            throw std::runtime_error("Failed to prepare SQL statement: " + std::string(sqlite3_errmsg(db)));
+        }
+        logging::log("database.log", "get_user_contacts is " + owner + " with " + std::to_string(res.size()) + " contacts", "\n", db);
         sqlite3_finalize(stmt); return res;
     }
 

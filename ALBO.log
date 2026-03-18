@@ -8,3 +8,38 @@ class object hash 45 2c fa f0 ac ee 51 f9 1c c0 7a 46 3b 50 c9 85 b2 2d 93 0c c6
 hashStruct PSW_Input hello
 hashStruct salt_in 8b 3b 90 e0 c3 04 9d ae 96 a7 69 d2 72 f9 18 92 
 class hash 45 2c fa f0 ac ee 51 f9 1c c0 7a 46 3b 50 c9 85 b2 2d 93 0c c6 e3 12 7d 50 4b ec 9d be fd 76 d7 
+ALBO Full-Scale Simulation Environment (Dynamic Tables).
+
+--- ALBO Robustness & Versatility Simulation ---
+Auth Commands: login <user> <pwd>, logout
+User Commands: adduser <user> <pwd> <display>, users, finduser <user>
+Inbox Commands: send <target_uuid> <msg>, history (my inbox)
+--------------------------------------------------
+
+[Guest @ SIM]> 
+[Guest @ SIM]> 
+[Guest @ SIM]> ^CALBO Full-Scale Simulation Environment (Dynamic Tables).
+
+--- ALBO Robustness & Versatility Simulation ---
+Auth Commands: login <user> <pwd>, logout
+User Commands: adduser <user> <pwd> <display>, users, finduser <user>
+Inbox Commands: send <target_uuid> <msg>, history (my inbox)
+--------------------------------------------------
+
+[Guest @ SIM]> ^CALBO Full-Scale Simulation Environment (Dynamic Tables).
+
+--- ALBO Robustness & Versatility Simulation ---
+Auth Commands: login <user> <pwd>, logout
+User Commands: adduser <user> <pwd> <display>, users, finduser <user>
+Inbox Commands: send <target_uuid> <msg>, history (my inbox)
+--------------------------------------------------
+
+[Guest @ SIM]> ^CALBO Full-Scale Simulation Environment (Dynamic Tables).
+
+--- ALBO Robustness & Versatility Simulation ---
+Auth Commands: login <user> <pwd>, logout
+User Commands: adduser <user> <pwd> <display>, users, finduser <user>
+Inbox Commands: send <target_uuid> <msg>, history (my inbox)
+--------------------------------------------------
+
+[Guest @ SIM]> ^C

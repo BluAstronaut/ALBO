@@ -35,5 +35,6 @@ namespace hashManager
         std::vector<uint8_t> Hash_mem;
 
         std::vector<uint8_t> Argon2ID_Hash();
+
     };
 };
